@@ -30,13 +30,58 @@
 
 (asdf:load-asd (project-path "src/clwasm.asd"))
 
+(defparameter *module-init-symbols* nil
+  "Collect the generated C init function names so we can emit a helper header.")
+
+(defun extract-init-symbol (c-file)
+  "Parse C-FILE and return the name of the exported init function."
+  (let ((prefix "ECL_DLLEXPORT void "))
+    (with-open-file (stream c-file)
+      (loop for line = (read-line stream nil nil)
+            while line
+            do (let ((pos (search prefix line)))
+                 (when pos
+                   (let* ((start (+ pos (length prefix)))
+                          (end (or (position #\( line :start start)
+                                             (length line)))
+                          (symbol (string-trim '(#\Space #\Tab)
+                                               (subseq line start end))))
+                     (return symbol))))
+            finally (return nil)))))
+
+(defun record-module-init-symbol (name c-file)
+  (let ((symbol (extract-init-symbol c-file)))
+    (unless symbol
+      (error "Could not locate init symbol in ~A" c-file))
+    (push (cons name symbol) *module-init-symbols*)))
+
+(defun write-init-header ()
+  (let* ((header-path (project-path "build/clwasm-init.h"))
+         (entries (reverse *module-init-symbols*)))
+    (with-open-file (stream header-path
+                            :direction :output
+                            :if-exists :supersede
+                            :if-does-not-exist :create)
+       (format stream "#ifndef CLWASM_INIT_H~%")
+       (format stream "#define CLWASM_INIT_H~%~%")
+       (format stream "#include <ecl/ecl.h>~%~%")
+       (format stream "#ifdef __cplusplus~%extern \"C\" {~%#endif~%")
+       (dolist (entry entries)
+         (format stream "extern void ~a(cl_object);~%" (cdr entry)))
+       (format stream "static inline void clwasm_register_modules(void) {~%")
+       (dolist (entry entries)
+         (format stream "  ecl_init_module(NULL, ~a);~%" (cdr entry)))
+       (format stream "}~%")
+       (format stream "#ifdef __cplusplus~%}~%#endif~%~%")
+       (format stream "#endif /* CLWASM_INIT_H */~%"))))
+
 (defun configure-toolchain-from-env ()
   "Allow overriding the host C toolchain ECL calls while translating to C."
   (let ((cc (uiop:getenv "CLWASM_CC"))
         (ld (uiop:getenv "CLWASM_LD"))
         (ar (uiop:getenv "CLWASM_AR"))
         (ranlib (uiop:getenv "CLWASM_RANLIB"))
-  (extra-cflags (uiop:getenv "CLWASM_CFLAGS")))
+        (extra-cflags (uiop:getenv "CLWASM_CFLAGS")))
     (when cc
       (setf c::*cc* cc))
     (when ld
@@ -53,7 +98,8 @@
   (let* ((source (project-path (format nil "src/~a.lisp" name)))
          (object (project-path (format nil "build/~a.o" name)))
          (c-file (project-path (format nil "build/~a.c" name)))
-         (h-file (project-path (format nil "build/~a.h" name))))
+         (h-file (project-path (format nil "build/~a.h" name)))
+         (data-file (project-path (format nil "build/~a.data" name))))
     (format t "~&[clwasm] compiling ~a" (uiop:native-namestring source))
     (ensure-directories-exist (uiop:pathname-directory-pathname object))
     (multiple-value-bind (fasl-path warnings-p failure-p)
@@ -61,13 +107,15 @@
                       :system-p t
                       :output-file object
                       :c-file c-file
-                      :h-file h-file)
+                      :h-file h-file
+                      :data-file data-file)
       (declare (ignore fasl-path))
       (when failure-p
         (error "Compilation failed for ~A" source))
       (when warnings-p
         (format *error-output* "~&[clwasm] warning while compiling ~a~%"
                 (uiop:native-namestring source)))
+      (record-module-init-symbol name c-file)
       object)))
 
 (defun build-static-library (objects)
@@ -80,10 +128,12 @@
 (defun main ()
   (handler-case
       (progn
+        (setf *module-init-symbols* nil)
         (configure-toolchain-from-env)
-    (asdf:operate 'asdf:load-op :clwasm)
+        (asdf:operate 'asdf:load-op :clwasm)
         (let ((objects (mapcar #'compile-module '("package" "core"))))
           (build-static-library objects))
+        (write-init-header)
         (format t "~&[clwasm] static library ready under build/"))
     (serious-condition (err)
       (format *error-output* "~&[clwasm] build failed: ~a~%" err)

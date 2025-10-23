@@ -16,7 +16,8 @@
   <script type="module">
     import createModule from './clwasm.js';
 
-    let moduleInstance;
+  let moduleInstance;
+  let entryPoint;
 
     async function ensureModule() {
       if (!moduleInstance) {
@@ -28,9 +29,13 @@
     async function runDemo() {
       const limit = Number(document.querySelector('#limit').value) || 10;
       const module = await ensureModule();
-      /* callMain wires argc/argv automatically from the provided array */
-      module.callMain([String(limit)]);
-      document.querySelector('#output').textContent = 'Lisp output was printed to the JavaScript console.';
+
+      if (!entryPoint) {
+        entryPoint = module.cwrap('clwasm_entry_string', 'string', ['number']);
+      }
+
+      const output = entryPoint(limit);
+      document.querySelector('#output').textContent = output;
     }
 
     document.querySelector('#run').addEventListener('click', runDemo);

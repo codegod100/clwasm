@@ -21,8 +21,8 @@ ECL_RUNTIME_LIBS := $(ECL_WASM_PREFIX)/libecl.a \
 	$(ECL_WASM_PREFIX)/libeclgc.a \
 	$(ECL_WASM_PREFIX)/libeclgmp.a
 
-EMCC_COMMON_FLAGS ?= -O2 -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=web,worker -sEXIT_RUNTIME=1 -sALLOW_MEMORY_GROWTH=1
-EMCC_LINK_FLAGS ?= -sEXPORTED_FUNCTIONS=['_main'] -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']
+EMCC_COMMON_FLAGS ?= -O2 -sASYNCIFY -sASYNCIFY_STACK_SIZE=262144 -sSUPPORT_LONGJMP=1 -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=web,worker -sEXIT_RUNTIME=1 -sALLOW_MEMORY_GROWTH=1 -sERROR_ON_UNDEFINED_SYMBOLS=0
+EMCC_LINK_FLAGS ?= -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' -sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE='["__wasm_setjmp","__wasm_longjmp","__wasm_setjmp_test","emscripten_longjmp"]'
 
 STATIC_LIB := $(BUILD_DIR)/lib$(PROJECT).a
 ENTRY_JS := $(WASM_DIR)/$(PROJECT).js
@@ -33,6 +33,7 @@ LISP_SOURCES := $(wildcard src/*.lisp)
 .PHONY: all clean wasm run
 
 all: $(ENTRY_JS)
+
 
 $(STATIC_LIB): $(LISP_SOURCES) scripts/build.lisp | $(BUILD_DIR)
 	@printf "[make] translating Lisp sources with ECL\n"
