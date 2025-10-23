@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>clwasm demo</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+</head>
+<body>
+  <main>
+    <h1>clwasm demo</h1>
+    <label for="limit">Fibonacci limit:</label>
+    <input id="limit" type="number" value="10" min="1" max="92">
+    <button id="run">Run</button>
+    <pre id="output">Building…</pre>
+  </main>
+  <script type="module">
+    import createModule from './clwasm.js';
+
+    let moduleInstance;
+
+    async function ensureModule() {
+      if (!moduleInstance) {
+        moduleInstance = await createModule();
+      }
+      return moduleInstance;
+    }
+
+    async function runDemo() {
+      const limit = Number(document.querySelector('#limit').value) || 10;
+      const module = await ensureModule();
+      /* callMain wires argc/argv automatically from the provided array */
+      module.callMain([String(limit)]);
+      document.querySelector('#output').textContent = 'Lisp output was printed to the JavaScript console.';
+    }
+
+    document.querySelector('#run').addEventListener('click', runDemo);
+    document.querySelector('#output').textContent = 'Click "Run" to execute the wasm module.';
+  </script>
+</body>
+</html>
